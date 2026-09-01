@@ -1,0 +1,722 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mind Map</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg: #12151a;
+    --bg-dot: rgba(255,255,255,0.06);
+    --toolbar: #1b1f27;
+    --toolbar-border: #2a2f3a;
+    --ink: #e9e6de;
+    --muted: #8b93a1;
+    --accent: #5eb8a4;
+    --accent-dim: #3d7d70;
+    --node-bg: #f6f1e6;
+    --node-border: #d8cdb4;
+    --node-text: #23201a;
+    --danger: #d1615b;
+  }
+  *{box-sizing:border-box;}
+  html,body{
+    margin:0; height:100%; overflow:hidden;
+    background:var(--bg);
+    font-family:'Inter', sans-serif;
+    color:var(--ink);
+  }
+
+  /* ---------- Toolbar ---------- */
+  #toolbar{
+    position:fixed; top:0; left:0; right:0; height:60px;
+    background:var(--toolbar);
+    border-bottom:1px solid var(--toolbar-border);
+    display:flex; align-items:center; gap:10px;
+    padding:0 16px;
+    z-index:100;
+  }
+  #toolbar h1{
+    font-family:'Space Grotesk', sans-serif;
+    font-size:17px; font-weight:600; letter-spacing:0.01em;
+    margin:0 18px 0 0; color:var(--ink); white-space:nowrap;
+  }
+  .btn{
+    font-family:'Inter', sans-serif;
+    font-size:13.5px; font-weight:500;
+    color:var(--ink);
+    background:#242a35;
+    border:1px solid var(--toolbar-border);
+    padding:8px 14px;
+    border-radius:8px;
+    cursor:pointer;
+    transition:background .15s, border-color .15s, color .15s;
+    white-space:nowrap;
+  }
+  .btn:hover{ background:#2c3340; }
+  .btn.primary{ background:var(--accent); border-color:var(--accent); color:#0d1712; font-weight:600; }
+  .btn.primary:hover{ background:#6ec3b0; }
+  .btn.active{ background:var(--accent-dim); border-color:var(--accent); color:#eafff9; }
+  .btn.ghost{ background:transparent; }
+  .btn.ghost:hover{ background:#242a35; }
+  #toolbar .spacer{ flex:1; }
+  #hint{
+    font-size:12.5px; color:var(--muted); margin-right:8px; white-space:nowrap;
+  }
+  #fileInput{ display:none; }
+  #fileStatus{
+    font-size:12px; color:var(--muted); white-space:nowrap;
+    display:flex; align-items:center; gap:6px; margin-right:4px;
+  }
+  #fileStatus .dot{
+    width:7px; height:7px; border-radius:50%; background:var(--accent);
+    display:inline-block; flex:none;
+  }
+  #fileStatus.saving .dot{ background:#e0b354; }
+  #fileStatus.unsupported .dot{ background:var(--muted); }
+  #fileNameLabel{
+    font-family:'Inter', sans-serif;
+    font-size:13px; color:var(--muted); font-weight:500;
+    margin:0 18px 0 -8px; white-space:nowrap;
+  }
+
+  /* ---------- Canvas ---------- */
+  #canvasWrapper{
+    position:absolute; top:60px; left:0; right:0; bottom:0;
+    overflow:auto;
+    cursor:default;
+  }
+  #canvas{
+    position:relative;
+    width:3200px; height:2200px;
+    background-image: radial-gradient(var(--bg-dot) 1.5px, transparent 1.5px);
+    background-size: 26px 26px;
+  }
+  svg#connLayer{
+    position:absolute; top:0; left:0; width:100%; height:100%;
+    pointer-events:none;
+  }
+  svg#connLayer .hit{ pointer-events:stroke; cursor:pointer; }
+  svg#connLayer .connLabelBg{ fill:#1b1f27; }
+  svg#connLayer .connLabelTxt{
+    fill:var(--muted); font-size:12.5px; font-family:'Inter', sans-serif;
+    pointer-events:auto; cursor:text;
+  }
+  svg#connLayer .connLine{ stroke:var(--accent-dim); stroke-width:2; }
+  svg#connLayer .connX{
+    fill:#2c3340; stroke:var(--toolbar-border); cursor:pointer; pointer-events:auto;
+  }
+  svg#connLayer .connXTxt{
+    fill:var(--muted); font-size:11px; pointer-events:none; text-anchor:middle;
+  }
+
+  /* ---------- Nodes ---------- */
+  .node{
+    position:absolute;
+    min-width:120px; max-width:260px;
+    background:var(--node-bg);
+    border:1.5px solid var(--node-border);
+    border-radius:10px;
+    padding:10px 14px;
+    box-shadow:0 3px 10px rgba(0,0,0,0.28);
+    cursor:grab;
+    user-select:none;
+    z-index:5;
+  }
+  .node.dragging{ cursor:grabbing; box-shadow:0 8px 20px rgba(0,0,0,0.4); z-index:20; }
+  .node.connectSelected{ outline:2.5px solid var(--accent); outline-offset:2px; }
+  .node.connectMode{ cursor:crosshair; }
+  .node-text{
+    font-family:'Inter', sans-serif;
+    font-size:14px; font-weight:500; line-height:1.35;
+    color:var(--node-text);
+    outline:none;
+    word-break:break-word;
+    cursor:text;
+    min-height:1.2em;
+    text-align:center;
+  }
+  .node-del{
+    position:absolute; top:-9px; right:-9px;
+    width:20px; height:20px; border-radius:50%;
+    background:var(--danger); color:#fff;
+    font-size:13px; line-height:20px; text-align:center;
+    cursor:pointer; opacity:0; transition:opacity .12s;
+    font-family:'Inter', sans-serif;
+  }
+  .node:hover .node-del{ opacity:0.9; }
+  .node-del:hover{ opacity:1 !important; background:#e07771; }
+
+  .node-add{
+    position:absolute;
+    width:22px; height:22px; border-radius:50%;
+    background:var(--accent); color:#0d1712;
+    font-size:15px; font-weight:700; line-height:22px; text-align:center;
+    cursor:pointer; opacity:0; transition:opacity .12s, transform .12s;
+    font-family:'Inter', sans-serif;
+  }
+  .node-add:hover{ opacity:1 !important; transform:scale(1.12); background:#6ec3b0; }
+  .node:hover .node-add{ opacity:0.9; }
+  .node-add.right{ top:50%; right:-11px; margin-top:-11px; }
+  .node-add.left{ top:50%; left:-11px; margin-top:-11px; }
+  .node-add.bottom{ bottom:-11px; left:50%; margin-left:-11px; }
+  .node-add.top{ top:-11px; left:50%; margin-left:-11px; }
+
+  /* connection label edit input */
+  #connEditor{
+    position:absolute;
+    font-family:'Inter', sans-serif; font-size:12.5px;
+    padding:3px 6px; border-radius:5px;
+    border:1.5px solid var(--accent);
+    background:#0f1216; color:var(--ink);
+    outline:none; z-index:30;
+    min-width:60px;
+  }
+
+  #empty{
+    position:absolute; top:40%; left:50%; transform:translate(-50%,-50%);
+    color:var(--muted); font-size:14px; text-align:center; pointer-events:none;
+    width:280px;
+  }
+</style>
+</head>
+<body>
+
+<div id="toolbar">
+  <h1>Mind Map</h1>
+  <span id="fileNameLabel">Untitled mind map</span>
+  <button class="btn primary" id="addNodeBtn">+ Node</button>
+  <button class="btn" id="connectBtn">Connect Nodes</button>
+  <span id="hint"></span>
+  <div class="spacer"></div>
+  <span id="fileStatus"></span>
+  <button class="btn ghost" id="newBtn">New</button>
+  <button class="btn ghost" id="saveBtn">Save</button>
+  <button class="btn ghost" id="loadBtn">Load</button>
+  <button class="btn ghost" id="clearBtn">Clear</button>
+  <input type="file" id="fileInput" accept="application/json">
+</div>
+
+<div id="canvasWrapper">
+  <div id="canvas">
+    <svg id="connLayer"></svg>
+    <div id="empty">Click <strong>+ Node</strong> to add your first idea.<br>Drag nodes to arrange them.<br>Use <strong>Connect Nodes</strong> to link ideas together.</div>
+  </div>
+</div>
+
+<script>
+(function(){
+  const canvas = document.getElementById('canvas');
+  const wrapper = document.getElementById('canvasWrapper');
+  const svg = document.getElementById('connLayer');
+  const emptyMsg = document.getElementById('empty');
+  const hint = document.getElementById('hint');
+
+  let nodes = [];       // {id, x, y, text}
+  let connections = []; // {id, from, to, text}
+  let idCounter = 1;
+  const nextId = () => 'n' + (idCounter++);
+
+  let connectMode = false;
+  let connectFrom = null;
+
+  // ---------- File handling (save to the exact loaded file) ----------
+  const fsAccessSupported = 'showOpenFilePicker' in window && 'showSaveFilePicker' in window;
+  let fileHandle = null;
+  let fileName = null;
+  let autoSaveTimer = null;
+  const fileStatus = document.getElementById('fileStatus');
+  const fileNameLabel = document.getElementById('fileNameLabel');
+
+  function setStatus(text, mode){
+    fileStatus.innerHTML = '<span class="dot"></span>' + text;
+    fileStatus.className = mode || '';
+  }
+  function updateFileNameLabel(){
+    fileNameLabel.textContent = fileName || 'Untitled mind map';
+    document.title = (fileName || 'Untitled mind map') + ' – Mind Map';
+  }
+  function refreshUnlinkedStatus(){
+    setStatus(fsAccessSupported ? 'Not saved to a file yet' : 'This browser can only download copies', 'unsupported');
+  }
+  refreshUnlinkedStatus();
+
+  function currentData(){
+    return JSON.stringify({ nodes, connections, idCounter }, null, 2);
+  }
+
+  async function writeToHandle(handle, data){
+    const writable = await handle.createWritable();
+    await writable.write(data);
+    await writable.close();
+  }
+
+  function downloadCopy(data, suggestedName){
+    const blob = new Blob([data], {type:'application/json'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = suggestedName || 'mindmap.json';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }
+
+  function sanitizeFileName(text){
+    const cleaned = (text || '').trim().replace(/[\\/:*?"<>|]/g, '').slice(0, 60);
+    return (cleaned || 'mindmap') + '.json';
+  }
+
+  function commitActiveEdit(){
+    const ae = document.activeElement;
+    if(ae && ae.classList && (ae.classList.contains('node-text') || ae.id === 'connEditor')){
+      ae.blur();
+    }
+  }
+
+  async function saveFile(){
+    commitActiveEdit();
+    const data = currentData();
+    if(fileHandle){
+      try{
+        await writeToHandle(fileHandle, data);
+        setStatus('Saved');
+      } catch(err){
+        setStatus('Could not save — try again', 'unsupported');
+      }
+      return;
+    }
+    if(fsAccessSupported){
+      try{
+        const handle = await window.showSaveFilePicker({
+          suggestedName: sanitizeFileName(nodes[0] && nodes[0].text),
+          types: [{ description:'Mind Map', accept:{'application/json':['.json']} }]
+        });
+        fileHandle = handle;
+        fileName = handle.name;
+        updateFileNameLabel();
+        await writeToHandle(fileHandle, data);
+        setStatus('Saved — autosaving from here');
+      } catch(err){
+        if(err.name !== 'AbortError') setStatus('Save cancelled', 'unsupported');
+      }
+      return;
+    }
+    downloadCopy(data, sanitizeFileName(nodes[0] && nodes[0].text));
+  }
+
+  async function loadFile(){
+    if(fsAccessSupported){
+      try{
+        const [handle] = await window.showOpenFilePicker({
+          types: [{ description:'Mind Map', accept:{'application/json':['.json']} }]
+        });
+        const file = await handle.getFile();
+        const text = await file.text();
+        if(applyLoadedData(text)){
+          fileHandle = handle;
+          fileName = handle.name;
+          updateFileNameLabel();
+          setStatus('Loaded — autosaving from here');
+        }
+      } catch(err){
+        // user cancelled — ignore
+      }
+      return;
+    }
+    fileInput.click();
+  }
+
+  function applyLoadedData(text){
+    try{
+      const data = JSON.parse(text);
+      nodes = Array.isArray(data.nodes) ? data.nodes : [];
+      connections = Array.isArray(data.connections) ? data.connections : [];
+      idCounter = data.idCounter || (nodes.length + connections.length + 1);
+      render();
+      return true;
+    } catch(err){
+      hint.textContent = 'Could not read that file — is it a saved mind map?';
+      setTimeout(() => hint.textContent = '', 3000);
+      return false;
+    }
+  }
+
+  function notifyChange(){
+    if(!fileHandle) return; // nothing loaded — no autosave target
+    setStatus('Saving…', 'saving');
+    clearTimeout(autoSaveTimer);
+    autoSaveTimer = setTimeout(async () => {
+      try{
+        await writeToHandle(fileHandle, currentData());
+        setStatus('Saved');
+      } catch(err){
+        setStatus('Could not autosave', 'unsupported');
+      }
+    }, 500);
+  }
+
+  // ---------- Rendering ----------
+  function render(){
+    // clear
+    canvas.querySelectorAll('.node').forEach(n => n.remove());
+    emptyMsg.style.display = nodes.length ? 'none' : 'block';
+
+    nodes.forEach(n => {
+      const el = document.createElement('div');
+      el.className = 'node';
+      el.dataset.id = n.id;
+      el.style.left = n.x + 'px';
+      el.style.top = n.y + 'px';
+
+      const del = document.createElement('div');
+      del.className = 'node-del';
+      del.textContent = '×';
+      del.title = 'Delete node';
+      del.addEventListener('pointerdown', e => e.stopPropagation());
+      del.addEventListener('click', e => {
+        e.stopPropagation();
+        deleteNode(n.id);
+      });
+
+      const txt = document.createElement('div');
+      txt.className = 'node-text';
+      txt.contentEditable = 'true';
+      txt.spellcheck = false;
+      txt.textContent = n.text;
+      txt.addEventListener('pointerdown', e => e.stopPropagation());
+      txt.addEventListener('blur', () => {
+        n.text = txt.textContent.trim() || 'Untitled';
+        txt.textContent = n.text;
+        drawConnections();
+        notifyChange();
+      });
+      txt.addEventListener('keydown', e => {
+        if(e.key === 'Enter'){ e.preventDefault(); txt.blur(); }
+      });
+
+      el.appendChild(txt);
+      el.appendChild(del);
+
+      ['right','bottom','left','top'].forEach(dir => {
+        const add = document.createElement('div');
+        add.className = 'node-add ' + dir;
+        add.textContent = '+';
+        add.title = 'Add connected node';
+        add.addEventListener('pointerdown', e => e.stopPropagation());
+        add.addEventListener('click', e => {
+          e.stopPropagation();
+          addConnectedNode(n, dir);
+        });
+        el.appendChild(add);
+      });
+
+      canvas.appendChild(el);
+
+      makeDraggable(el, n);
+
+      el.addEventListener('click', e => {
+        if(!connectMode) return;
+        e.stopPropagation();
+        handleConnectClick(n.id, el);
+      });
+    });
+
+    drawConnections();
+  }
+
+  function nodeCenter(id){
+    const el = canvas.querySelector('.node[data-id="'+id+'"]');
+    if(!el) return null;
+    return {
+      x: el.offsetLeft + el.offsetWidth/2,
+      y: el.offsetTop + el.offsetHeight/2,
+      w: el.offsetWidth,
+      h: el.offsetHeight
+    };
+  }
+
+  function drawConnections(){
+    svg.innerHTML = '';
+    connections.forEach(c => {
+      const a = nodeCenter(c.from);
+      const b = nodeCenter(c.to);
+      if(!a || !b) return;
+
+      const g = document.createElementNS('http://www.w3.org/2000/svg','g');
+
+      const line = document.createElementNS('http://www.w3.org/2000/svg','line');
+      line.setAttribute('x1', a.x); line.setAttribute('y1', a.y);
+      line.setAttribute('x2', b.x); line.setAttribute('y2', b.y);
+      line.setAttribute('class','connLine');
+      g.appendChild(line);
+
+      const hit = document.createElementNS('http://www.w3.org/2000/svg','line');
+      hit.setAttribute('x1', a.x); hit.setAttribute('y1', a.y);
+      hit.setAttribute('x2', b.x); hit.setAttribute('y2', b.y);
+      hit.setAttribute('class','hit');
+      hit.setAttribute('stroke','transparent');
+      hit.setAttribute('stroke-width','14');
+      hit.addEventListener('click', () => openConnEditor(c));
+      g.appendChild(hit);
+
+      const mx = (a.x+b.x)/2, my = (a.y+b.y)/2;
+
+      if(c.text){
+        const w = Math.max(24, c.text.length * 6.6 + 22);
+
+        const bg = document.createElementNS('http://www.w3.org/2000/svg','rect');
+        bg.setAttribute('x', mx - w/2); bg.setAttribute('y', my - 11);
+        bg.setAttribute('width', w); bg.setAttribute('height', 22);
+        bg.setAttribute('rx', 6);
+        bg.setAttribute('class','connLabelBg');
+        g.appendChild(bg);
+
+        const tEl = document.createElementNS('http://www.w3.org/2000/svg','text');
+        tEl.setAttribute('x', mx); tEl.setAttribute('y', my + 4);
+        tEl.setAttribute('text-anchor','middle');
+        tEl.setAttribute('class','connLabelTxt');
+        tEl.textContent = c.text;
+        tEl.addEventListener('click', () => openConnEditor(c));
+        g.appendChild(tEl);
+      }
+
+      const dx = (c.text ? Math.max(24, c.text.length * 6.6 + 22)/2 : 6) + 12;
+      const delC = document.createElementNS('http://www.w3.org/2000/svg','circle');
+      delC.setAttribute('cx', mx + dx); delC.setAttribute('cy', my);
+      delC.setAttribute('r', 8);
+      delC.setAttribute('class','connX');
+      delC.addEventListener('click', () => deleteConnection(c.id));
+      g.appendChild(delC);
+
+      const delT = document.createElementNS('http://www.w3.org/2000/svg','text');
+      delT.setAttribute('x', mx + dx); delT.setAttribute('y', my + 3.5);
+      delT.setAttribute('class','connXTxt');
+      delT.textContent = '×';
+      delT.style.pointerEvents = 'none';
+      g.appendChild(delT);
+
+      svg.appendChild(g);
+    });
+  }
+
+  // ---------- Dragging ----------
+  function makeDraggable(el, n){
+    let startX, startY, origX, origY, dragging = false;
+    el.addEventListener('pointerdown', e => {
+      if(connectMode) return;
+      if(e.target.classList.contains('node-text')) return;
+      dragging = true;
+      el.classList.add('dragging');
+      el.setPointerCapture(e.pointerId);
+      startX = e.clientX; startY = e.clientY;
+      origX = n.x; origY = n.y;
+    });
+    el.addEventListener('pointermove', e => {
+      if(!dragging) return;
+      n.x = Math.max(0, origX + (e.clientX - startX));
+      n.y = Math.max(0, origY + (e.clientY - startY));
+      el.style.left = n.x + 'px';
+      el.style.top = n.y + 'px';
+      drawConnections();
+    });
+    function stop(e){
+      if(!dragging) return;
+      dragging = false;
+      el.classList.remove('dragging');
+      notifyChange();
+    }
+    el.addEventListener('pointerup', stop);
+    el.addEventListener('pointercancel', stop);
+  }
+
+  // ---------- Node ops ----------
+  function addNode(){
+    const left = wrapper.scrollLeft, top = wrapper.scrollTop;
+    const w = wrapper.clientWidth, h = wrapper.clientHeight;
+    const n = {
+      id: nextId(),
+      x: left + w/2 - 70 + (Math.random()*60-30),
+      y: top + h/2 - 20 + (Math.random()*60-30),
+      text: 'New Idea'
+    };
+    nodes.push(n);
+    render();
+    requestAnimationFrame(() => {
+      const el = canvas.querySelector('.node[data-id="'+n.id+'"] .node-text');
+      if(el){
+        el.focus();
+        const range = document.createRange();
+        range.selectNodeContents(el);
+        const sel = window.getSelection();
+        sel.removeAllRanges(); sel.addRange(range);
+      }
+    });
+    notifyChange();
+  }
+
+  function addConnectedNode(parent, dir){
+    const el = canvas.querySelector('.node[data-id="'+parent.id+'"]');
+    const w = el ? el.offsetWidth : 160;
+    const h = el ? el.offsetHeight : 50;
+    const gapX = w + 90, gapY = h + 70;
+    let x = parent.x, y = parent.y;
+    if(dir === 'right'){ x = parent.x + gapX; }
+    else if(dir === 'left'){ x = parent.x - gapX; }
+    else if(dir === 'bottom'){ y = parent.y + gapY; }
+    else if(dir === 'top'){ y = parent.y - gapY; }
+    x = Math.max(0, x); y = Math.max(0, y);
+
+    const n = { id: nextId(), x, y, text: 'New Idea' };
+    nodes.push(n);
+    connections.push({ id:'c'+(idCounter++), from: parent.id, to: n.id, text:'' });
+    render();
+
+    requestAnimationFrame(() => {
+      const txtEl = canvas.querySelector('.node[data-id="'+n.id+'"] .node-text');
+      if(txtEl){
+        txtEl.focus();
+        const range = document.createRange();
+        range.selectNodeContents(txtEl);
+        const sel = window.getSelection();
+        sel.removeAllRanges(); sel.addRange(range);
+      }
+      // scroll new node into view if needed
+      const nodeEl = canvas.querySelector('.node[data-id="'+n.id+'"]');
+      if(nodeEl) nodeEl.scrollIntoView({ block:'nearest', inline:'nearest', behavior:'smooth' });
+    });
+    notifyChange();
+  }
+
+  function deleteNode(id){
+    nodes = nodes.filter(n => n.id !== id);
+    connections = connections.filter(c => c.from !== id && c.to !== id);
+    if(connectFrom === id) connectFrom = null;
+    render();
+    notifyChange();
+  }
+
+  // ---------- Connection ops ----------
+  function handleConnectClick(id, el){
+    if(!connectFrom){
+      connectFrom = id;
+      el.classList.add('connectSelected');
+      hint.textContent = 'Now click the node to connect to…';
+    } else if(connectFrom === id){
+      el.classList.remove('connectSelected');
+      connectFrom = null;
+      hint.textContent = 'Click a node to start a connection…';
+    } else {
+      const exists = connections.some(c =>
+        (c.from===connectFrom && c.to===id) || (c.from===id && c.to===connectFrom));
+      if(!exists){
+        connections.push({ id:'c'+(idCounter++), from:connectFrom, to:id, text:'' });
+      }
+      canvas.querySelectorAll('.connectSelected').forEach(x=>x.classList.remove('connectSelected'));
+      connectFrom = null;
+      hint.textContent = 'Click a node to start a connection…';
+      render();
+      notifyChange();
+    }
+  }
+
+  function deleteConnection(id){
+    connections = connections.filter(c => c.id !== id);
+    drawConnections();
+    notifyChange();
+  }
+
+  function openConnEditor(c){
+    document.getElementById('connEditor')?.remove();
+    const a = nodeCenter(c.from), b = nodeCenter(c.to);
+    if(!a || !b) return;
+    const mx = (a.x+b.x)/2, my = (a.y+b.y)/2;
+
+    const input = document.createElement('input');
+    input.id = 'connEditor';
+    input.value = c.text || '';
+    input.placeholder = 'label';
+    input.style.left = (mx - 60) + 'px';
+    input.style.top = (my - 12) + 'px';
+    input.style.width = '120px';
+    canvas.appendChild(input);
+    input.focus();
+    input.select();
+
+    function commit(){
+      c.text = input.value.trim();
+      input.remove();
+      drawConnections();
+      notifyChange();
+    }
+    input.addEventListener('blur', commit);
+    input.addEventListener('keydown', e => {
+      if(e.key === 'Enter'){ e.preventDefault(); input.blur(); }
+      if(e.key === 'Escape'){ input.removeEventListener('blur', commit); input.remove(); }
+    });
+  }
+
+  // ---------- Toolbar actions ----------
+  document.getElementById('addNodeBtn').addEventListener('click', addNode);
+
+  const connectBtn = document.getElementById('connectBtn');
+  connectBtn.addEventListener('click', () => {
+    connectMode = !connectMode;
+    connectBtn.classList.toggle('active', connectMode);
+    canvas.classList.toggle('connectMode', connectMode);
+    canvas.querySelectorAll('.node').forEach(n => n.classList.toggle('connectMode', connectMode));
+    if(!connectMode){
+      canvas.querySelectorAll('.connectSelected').forEach(x=>x.classList.remove('connectSelected'));
+      connectFrom = null;
+      hint.textContent = '';
+    } else {
+      hint.textContent = 'Click a node to start a connection…';
+    }
+  });
+
+  document.getElementById('saveBtn').addEventListener('click', saveFile);
+
+  const fileInput = document.getElementById('fileInput');
+  document.getElementById('loadBtn').addEventListener('click', loadFile);
+  fileInput.addEventListener('change', () => {
+    const file = fileInput.files[0];
+    if(!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      applyLoadedData(reader.result);
+    };
+    reader.readAsText(file);
+    fileInput.value = '';
+  });
+
+  document.getElementById('clearBtn').addEventListener('click', () => {
+    nodes = []; connections = []; connectFrom = null;
+    render();
+    notifyChange();
+  });
+
+  document.getElementById('newBtn').addEventListener('click', () => {
+    nodes = []; connections = []; connectFrom = null;
+    idCounter = 1;
+    fileHandle = null;
+    fileName = null;
+    clearTimeout(autoSaveTimer);
+    nodes.push({ id: nextId(), x: 1500, y: 1000, text: 'Central Idea' });
+    render();
+    updateFileNameLabel();
+    refreshUnlinkedStatus();
+  });
+
+  wrapper.addEventListener('scroll', drawConnections);
+  window.addEventListener('resize', drawConnections);
+
+  // seed with one starter node
+  nodes.push({ id: nextId(), x: 1500, y: 1000, text: 'Central Idea' });
+  render();
+})();
+</script>
+</body>
+</html>
