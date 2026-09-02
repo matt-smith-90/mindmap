@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Mind Map</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=Caveat:wght@600;700&display=swap" rel="stylesheet">
 <style>
   :root{
     --bg: #12151a;
@@ -105,11 +105,23 @@
     pointer-events:auto; cursor:text;
   }
   svg#connLayer .connLine{ stroke:var(--accent-dim); stroke-width:2; }
+  svg#connLayer .connLine.selected{ stroke:var(--accent); stroke-width:3; }
   svg#connLayer .connX{
-    fill:#2c3340; stroke:var(--toolbar-border); cursor:pointer; pointer-events:auto;
+    fill:#2c3340; stroke:var(--toolbar-border); cursor:pointer;
+    opacity:0; pointer-events:none; transition:opacity .12s;
   }
   svg#connLayer .connXTxt{
-    fill:var(--muted); font-size:11px; pointer-events:none; text-anchor:middle;
+    fill:var(--muted); font-size:11px; text-anchor:middle;
+    opacity:0; pointer-events:none; transition:opacity .12s;
+  }
+  svg#connLayer .conn:hover .connX{ opacity:1; pointer-events:auto; }
+  svg#connLayer .conn:hover .connXTxt{ opacity:1; }
+  svg#connLayer .connNote{
+    fill:#2c3340; stroke:var(--toolbar-border); cursor:pointer; pointer-events:auto;
+  }
+  svg#connLayer .connNote.has-notes{ fill:var(--accent-dim); stroke:var(--accent); }
+  svg#connLayer .connNoteTxt{
+    font-size:10px; pointer-events:none; text-anchor:middle;
   }
 
   /* ---------- Nodes ---------- */
@@ -129,8 +141,8 @@
   .node.connectSelected{ outline:2.5px solid var(--accent); outline-offset:2px; }
   .node.connectMode{ cursor:crosshair; }
   .node-text{
-    font-family:'Inter', sans-serif;
-    font-size:14px; font-weight:500; line-height:1.35;
+    font-family:'Caveat', cursive;
+    font-size:22px; font-weight:700; line-height:1.25;
     color:var(--node-text);
     outline:none;
     word-break:break-word;
@@ -164,6 +176,17 @@
   .node-add.bottom{ bottom:-11px; left:50%; margin-left:-11px; }
   .node-add.top{ top:-11px; left:50%; margin-left:-11px; }
 
+  .node.selected{
+    box-shadow:0 0 0 3px rgba(94,184,164,0.55), 0 3px 10px rgba(0,0,0,0.28);
+  }
+  .node-note-badge{
+    position:absolute; bottom:-8px; left:-8px;
+    width:19px; height:19px; border-radius:50%;
+    background:#242a35; border:1.5px solid var(--toolbar-border);
+    font-size:11px; line-height:16px; text-align:center;
+    color:var(--accent); pointer-events:none;
+  }
+
   /* connection label edit input */
   #connEditor{
     position:absolute;
@@ -174,6 +197,47 @@
     outline:none; z-index:30;
     min-width:60px;
   }
+
+  /* ---------- Notes side panel ---------- */
+  #notesPanel{
+    position:fixed; top:60px; right:0; bottom:0;
+    width:320px;
+    background:var(--toolbar);
+    border-left:1px solid var(--toolbar-border);
+    box-shadow:-6px 0 20px rgba(0,0,0,0.35);
+    display:flex; flex-direction:column;
+    transform:translateX(100%);
+    transition:transform .18s ease;
+    z-index:200;
+  }
+  #notesPanel.open{ transform:translateX(0); }
+  #notesPanelHeader{
+    display:flex; align-items:flex-start; justify-content:space-between;
+    gap:10px; padding:14px 16px 10px;
+    border-bottom:1px solid var(--toolbar-border);
+  }
+  #notesPanelTitle{
+    font-family:'Space Grotesk', sans-serif;
+    font-size:15px; font-weight:600; color:var(--ink);
+    line-height:1.3; word-break:break-word;
+  }
+  #notesPanelSub{
+    font-size:11.5px; color:var(--muted); margin-top:3px;
+  }
+  #notesPanelClose{
+    flex:none; width:24px; height:24px; border-radius:6px;
+    background:transparent; border:none; color:var(--muted);
+    font-size:16px; cursor:pointer; line-height:24px; text-align:center;
+  }
+  #notesPanelClose:hover{ background:#242a35; color:var(--ink); }
+  #notesTextarea{
+    flex:1; margin:14px 16px 16px; padding:12px;
+    background:#12151a; color:var(--ink);
+    border:1.5px solid var(--toolbar-border); border-radius:8px;
+    font-family:'Inter', sans-serif; font-size:13.5px; line-height:1.5;
+    resize:none; outline:none;
+  }
+  #notesTextarea:focus{ border-color:var(--accent); }
 
   #empty{
     position:absolute; top:40%; left:50%; transform:translate(-50%,-50%);
@@ -206,6 +270,17 @@
   </div>
 </div>
 
+<div id="notesPanel">
+  <div id="notesPanelHeader">
+    <div>
+      <div id="notesPanelTitle">Node</div>
+      <div id="notesPanelSub">Supplemental note</div>
+    </div>
+    <button id="notesPanelClose" title="Close">×</button>
+  </div>
+  <textarea id="notesTextarea" placeholder="Add a note about this node…"></textarea>
+</div>
+
 <script>
 (function(){
   const canvas = document.getElementById('canvas');
@@ -214,13 +289,87 @@
   const emptyMsg = document.getElementById('empty');
   const hint = document.getElementById('hint');
 
-  let nodes = [];       // {id, x, y, text}
+  let nodes = [];       // {id, x, y, text, notes}
   let connections = []; // {id, from, to, text}
   let idCounter = 1;
   const nextId = () => 'n' + (idCounter++);
 
   let connectMode = false;
   let connectFrom = null;
+  let selectedType = null; // 'node' | 'connection' | null
+  let selectedId = null;
+
+  // ---------- Notes side panel ----------
+  const notesPanel = document.getElementById('notesPanel');
+  const notesPanelTitle = document.getElementById('notesPanelTitle');
+  const notesPanelSub = document.getElementById('notesPanelSub');
+  const notesTextarea = document.getElementById('notesTextarea');
+  document.getElementById('notesPanelClose').addEventListener('click', closePanel);
+
+  function selectNode(id){
+    selectedType = 'node';
+    selectedId = id;
+    canvas.querySelectorAll('.node.selected').forEach(x => x.classList.remove('selected'));
+    const el = canvas.querySelector('.node[data-id="'+id+'"]');
+    if(el) el.classList.add('selected');
+    const n = nodes.find(n => n.id === id);
+    if(!n) return;
+    notesPanelTitle.textContent = n.text;
+    notesPanelSub.textContent = 'Supplemental note';
+    notesTextarea.value = n.notes || '';
+    notesPanel.classList.add('open');
+  }
+
+  function selectConnection(id){
+    selectedType = 'connection';
+    selectedId = id;
+    canvas.querySelectorAll('.node.selected').forEach(x => x.classList.remove('selected'));
+    const c = connections.find(c => c.id === id);
+    if(!c) return;
+    const fromN = nodes.find(n => n.id === c.from);
+    const toN = nodes.find(n => n.id === c.to);
+    notesPanelTitle.textContent = c.text ? '“' + c.text + '”' : 'Connection';
+    notesPanelSub.textContent = (fromN ? fromN.text : '?') + ' → ' + (toN ? toN.text : '?');
+    notesTextarea.value = c.notes || '';
+    notesPanel.classList.add('open');
+    drawConnections();
+  }
+
+  function closePanel(){
+    const wasConnection = selectedType === 'connection';
+    selectedType = null;
+    selectedId = null;
+    notesPanel.classList.remove('open');
+    canvas.querySelectorAll('.node.selected').forEach(x => x.classList.remove('selected'));
+    if(wasConnection) drawConnections();
+  }
+
+  notesTextarea.addEventListener('input', () => {
+    if(selectedType === 'node'){
+      const n = nodes.find(n => n.id === selectedId);
+      if(!n) return;
+      n.notes = notesTextarea.value;
+      const el = canvas.querySelector('.node[data-id="'+n.id+'"]');
+      let badge = el ? el.querySelector('.node-note-badge') : null;
+      if(n.notes.trim()){
+        if(el && !badge){
+          badge = document.createElement('div');
+          badge.className = 'node-note-badge';
+          badge.textContent = '📝';
+          el.appendChild(badge);
+        }
+      } else if(badge){
+        badge.remove();
+      }
+      notifyChange();
+    } else if(selectedType === 'connection'){
+      const c = connections.find(c => c.id === selectedId);
+      if(!c) return;
+      c.notes = notesTextarea.value;
+      drawConnections();
+      notifyChange();
+    }
+  });
 
   // ---------- File handling (save to the exact loaded file) ----------
   const fsAccessSupported = 'showOpenFilePicker' in window && 'showSaveFilePicker' in window;
@@ -335,7 +484,12 @@
       const data = JSON.parse(text);
       nodes = Array.isArray(data.nodes) ? data.nodes : [];
       connections = Array.isArray(data.connections) ? data.connections : [];
+      nodes.forEach(n => { if(typeof n.notes !== 'string') n.notes = ''; });
+      connections.forEach(c => { if(typeof c.notes !== 'string') c.notes = ''; });
       idCounter = data.idCounter || (nodes.length + connections.length + 1);
+      selectedType = null;
+      selectedId = null;
+      closePanel();
       render();
       return true;
     } catch(err){
@@ -365,6 +519,10 @@
     canvas.querySelectorAll('.node').forEach(n => n.remove());
     emptyMsg.style.display = nodes.length ? 'none' : 'block';
 
+    if(selectedType === 'node' && !nodes.find(n => n.id === selectedId)){
+      closePanel();
+    }
+
     nodes.forEach(n => {
       const el = document.createElement('div');
       el.className = 'node';
@@ -391,6 +549,15 @@
       txt.addEventListener('blur', () => {
         n.text = txt.textContent.trim() || 'Untitled';
         txt.textContent = n.text;
+        if(selectedType === 'node' && selectedId === n.id) notesPanelTitle.textContent = n.text;
+        if(selectedType === 'connection'){
+          const c = connections.find(c => c.id === selectedId);
+          if(c && (c.from === n.id || c.to === n.id)){
+            const fromN = nodes.find(x => x.id === c.from);
+            const toN = nodes.find(x => x.id === c.to);
+            notesPanelSub.textContent = (fromN ? fromN.text : '?') + ' → ' + (toN ? toN.text : '?');
+          }
+        }
         drawConnections();
         notifyChange();
       });
@@ -413,6 +580,15 @@
         });
         el.appendChild(add);
       });
+
+      if(n.notes && n.notes.trim()){
+        const badge = document.createElement('div');
+        badge.className = 'node-note-badge';
+        badge.textContent = '📝';
+        el.appendChild(badge);
+      }
+
+      if(selectedType === 'node' && n.id === selectedId) el.classList.add('selected');
 
       canvas.appendChild(el);
 
@@ -441,17 +617,21 @@
 
   function drawConnections(){
     svg.innerHTML = '';
+    if(selectedType === 'connection' && !connections.find(c => c.id === selectedId)){
+      closePanel();
+    }
     connections.forEach(c => {
       const a = nodeCenter(c.from);
       const b = nodeCenter(c.to);
       if(!a || !b) return;
 
       const g = document.createElementNS('http://www.w3.org/2000/svg','g');
+      g.setAttribute('class', 'conn');
 
       const line = document.createElementNS('http://www.w3.org/2000/svg','line');
       line.setAttribute('x1', a.x); line.setAttribute('y1', a.y);
       line.setAttribute('x2', b.x); line.setAttribute('y2', b.y);
-      line.setAttribute('class','connLine');
+      line.setAttribute('class', 'connLine' + (selectedType==='connection' && selectedId===c.id ? ' selected' : ''));
       g.appendChild(line);
 
       const hit = document.createElementNS('http://www.w3.org/2000/svg','line');
@@ -473,6 +653,7 @@
         bg.setAttribute('width', w); bg.setAttribute('height', 22);
         bg.setAttribute('rx', 6);
         bg.setAttribute('class','connLabelBg');
+        bg.addEventListener('click', () => openConnEditor(c));
         g.appendChild(bg);
 
         const tEl = document.createElementNS('http://www.w3.org/2000/svg','text');
@@ -484,7 +665,9 @@
         g.appendChild(tEl);
       }
 
-      const dx = (c.text ? Math.max(24, c.text.length * 6.6 + 22)/2 : 6) + 12;
+      const halfLabel = (c.text ? Math.max(24, c.text.length * 6.6 + 22)/2 : 6);
+      const dx = halfLabel + 12;
+
       const delC = document.createElementNS('http://www.w3.org/2000/svg','circle');
       delC.setAttribute('cx', mx + dx); delC.setAttribute('cy', my);
       delC.setAttribute('r', 8);
@@ -498,6 +681,30 @@
       delT.textContent = '×';
       delT.style.pointerEvents = 'none';
       g.appendChild(delT);
+
+      const hasText = !!(c.text && c.text.trim());
+      const hasNotes = !!(c.notes && c.notes.trim());
+
+      if(hasText){
+        const noteX = mx - dx;
+        const noteC = document.createElementNS('http://www.w3.org/2000/svg','circle');
+        noteC.setAttribute('cx', noteX); noteC.setAttribute('cy', my);
+        noteC.setAttribute('r', 8);
+        noteC.setAttribute('class', 'connNote' + (hasNotes ? ' has-notes' : ''));
+        noteC.addEventListener('click', () => selectConnection(c.id));
+        const noteTitle = document.createElementNS('http://www.w3.org/2000/svg','title');
+        noteTitle.textContent = hasNotes ? 'Edit note' : 'Add note';
+        noteC.appendChild(noteTitle);
+        g.appendChild(noteC);
+
+        const noteT = document.createElementNS('http://www.w3.org/2000/svg','text');
+        noteT.setAttribute('x', noteX); noteT.setAttribute('y', my + 3.2);
+        noteT.setAttribute('class','connNoteTxt');
+        noteT.style.fill = hasNotes ? '#eafff9' : '#8b93a1';
+        noteT.textContent = '📝';
+        noteT.style.pointerEvents = 'none';
+        g.appendChild(noteT);
+      }
 
       svg.appendChild(g);
     });
@@ -527,7 +734,12 @@
       if(!dragging) return;
       dragging = false;
       el.classList.remove('dragging');
-      notifyChange();
+      const dist = Math.hypot(e.clientX - startX, e.clientY - startY);
+      if(dist < 5){
+        selectNode(n.id);
+      } else {
+        notifyChange();
+      }
     }
     el.addEventListener('pointerup', stop);
     el.addEventListener('pointercancel', stop);
@@ -541,7 +753,8 @@
       id: nextId(),
       x: left + w/2 - 70 + (Math.random()*60-30),
       y: top + h/2 - 20 + (Math.random()*60-30),
-      text: 'New Idea'
+      text: 'New Idea',
+      notes: ''
     };
     nodes.push(n);
     render();
@@ -570,9 +783,9 @@
     else if(dir === 'top'){ y = parent.y - gapY; }
     x = Math.max(0, x); y = Math.max(0, y);
 
-    const n = { id: nextId(), x, y, text: 'New Idea' };
+    const n = { id: nextId(), x, y, text: 'New Idea', notes: '' };
     nodes.push(n);
-    connections.push({ id:'c'+(idCounter++), from: parent.id, to: n.id, text:'' });
+    connections.push({ id:'c'+(idCounter++), from: parent.id, to: n.id, text:'', notes:'' });
     render();
 
     requestAnimationFrame(() => {
@@ -613,7 +826,7 @@
       const exists = connections.some(c =>
         (c.from===connectFrom && c.to===id) || (c.from===id && c.to===connectFrom));
       if(!exists){
-        connections.push({ id:'c'+(idCounter++), from:connectFrom, to:id, text:'' });
+        connections.push({ id:'c'+(idCounter++), from:connectFrom, to:id, text:'', notes:'' });
       }
       canvas.querySelectorAll('.connectSelected').forEach(x=>x.classList.remove('connectSelected'));
       connectFrom = null;
@@ -674,6 +887,7 @@
       hint.textContent = '';
     } else {
       hint.textContent = 'Click a node to start a connection…';
+      closePanel();
     }
   });
 
@@ -704,7 +918,7 @@
     fileHandle = null;
     fileName = null;
     clearTimeout(autoSaveTimer);
-    nodes.push({ id: nextId(), x: 1500, y: 1000, text: 'Central Idea' });
+    nodes.push({ id: nextId(), x: 1500, y: 1000, text: 'Central Idea', notes: '' });
     render();
     updateFileNameLabel();
     refreshUnlinkedStatus();
@@ -712,9 +926,12 @@
 
   wrapper.addEventListener('scroll', drawConnections);
   window.addEventListener('resize', drawConnections);
+  canvas.addEventListener('click', e => {
+    if(e.target === canvas || e.target === svg) closePanel();
+  });
 
   // seed with one starter node
-  nodes.push({ id: nextId(), x: 1500, y: 1000, text: 'Central Idea' });
+  nodes.push({ id: nextId(), x: 1500, y: 1000, text: 'Central Idea', notes: '' });
   render();
 })();
 </script>
