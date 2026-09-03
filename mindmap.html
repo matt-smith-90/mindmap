@@ -101,11 +101,11 @@
   svg#connLayer .hit{ pointer-events:stroke; cursor:pointer; }
   svg#connLayer .connLabelBg{ fill:#1b1f27; }
   svg#connLayer .connLabelTxt{
-    fill:var(--muted); font-size:12.5px; font-family:'Inter', sans-serif;
+    fill:var(--muted); font-size:15px; font-family:'Inter', sans-serif; font-weight:500;
     pointer-events:auto; cursor:text;
   }
-  svg#connLayer .connLine{ stroke:var(--accent-dim); stroke-width:2; }
-  svg#connLayer .connLine.selected{ stroke:var(--accent); stroke-width:3; }
+  svg#connLayer .connLine{ stroke:var(--accent-dim); stroke-width:3.5; }
+  svg#connLayer .connLine.selected{ stroke:var(--accent); stroke-width:5; }
   svg#connLayer .connX{
     fill:#2c3340; stroke:var(--toolbar-border); cursor:pointer;
     opacity:0; pointer-events:none; transition:opacity .12s;
@@ -190,7 +190,7 @@
   /* connection label edit input */
   #connEditor{
     position:absolute;
-    font-family:'Inter', sans-serif; font-size:12.5px;
+    font-family:'Inter', sans-serif; font-size:14.5px;
     padding:3px 6px; border-radius:5px;
     border:1.5px solid var(--accent);
     background:#0f1216; color:var(--ink);
@@ -639,25 +639,24 @@
       hit.setAttribute('x2', b.x); hit.setAttribute('y2', b.y);
       hit.setAttribute('class','hit');
       hit.setAttribute('stroke','transparent');
-      hit.setAttribute('stroke-width','14');
+      hit.setAttribute('stroke-width','18');
       hit.addEventListener('click', () => openConnEditor(c));
       g.appendChild(hit);
 
       const mx = (a.x+b.x)/2, my = (a.y+b.y)/2;
+      const labelWidth = c.text ? Math.max(28, c.text.length * 8.2 + 26) : 0;
 
       if(c.text){
-        const w = Math.max(24, c.text.length * 6.6 + 22);
-
         const bg = document.createElementNS('http://www.w3.org/2000/svg','rect');
-        bg.setAttribute('x', mx - w/2); bg.setAttribute('y', my - 11);
-        bg.setAttribute('width', w); bg.setAttribute('height', 22);
-        bg.setAttribute('rx', 6);
+        bg.setAttribute('x', mx - labelWidth/2); bg.setAttribute('y', my - 13);
+        bg.setAttribute('width', labelWidth); bg.setAttribute('height', 26);
+        bg.setAttribute('rx', 7);
         bg.setAttribute('class','connLabelBg');
         bg.addEventListener('click', () => openConnEditor(c));
         g.appendChild(bg);
 
         const tEl = document.createElementNS('http://www.w3.org/2000/svg','text');
-        tEl.setAttribute('x', mx); tEl.setAttribute('y', my + 4);
+        tEl.setAttribute('x', mx); tEl.setAttribute('y', my + 5);
         tEl.setAttribute('text-anchor','middle');
         tEl.setAttribute('class','connLabelTxt');
         tEl.textContent = c.text;
@@ -665,7 +664,7 @@
         g.appendChild(tEl);
       }
 
-      const halfLabel = (c.text ? Math.max(24, c.text.length * 6.6 + 22)/2 : 6);
+      const halfLabel = c.text ? labelWidth/2 : 6;
       const dx = halfLabel + 12;
 
       const delC = document.createElementNS('http://www.w3.org/2000/svg','circle');
