@@ -180,11 +180,13 @@
   #canvasWrapper{
     position:absolute; top:60px; left:0; right:0; bottom:0;
     overflow:hidden;
-    cursor:default;
+    cursor:grab;
     background-image: radial-gradient(var(--bg-dot) 1.5px, transparent 1.5px);
     background-size: 26px 26px;
     background-position: 0 0;
   }
+  #canvasWrapper.panning{ cursor:grabbing; }
+  #canvasWrapper.select-mode{ cursor:crosshair; }
   #selectionBox{
     position:absolute;
     border:1.5px dashed var(--accent);
@@ -478,6 +480,7 @@
   <span id="fileIndicator" title="Not saved to a file yet"><span class="dot"></span><span id="fileNameLabel">Untitled</span></span>
   <button class="btn primary" id="addNodeBtn">+ Node</button>
   <button class="btn" id="connectBtn" title="Connect two nodes">🔗 Connect</button>
+  <button class="btn" id="dragModeBtn" title="Switch what dragging empty canvas does">🖐 Move</button>
   <label class="colorPickerWrap" title="Selected node's background color">
     <input type="color" id="nodeColorPicker" value="#f6f1e6" disabled>
   </label>
@@ -740,22 +743,30 @@
     }
   }, { passive:false });
 
-  // rubber-band selection on empty canvas (drag to highlight, click to deselect)
+  // drag on empty canvas: either pans the view or rubber-band selects,
+  // depending on dragMode. Default is 'move' (pan).
+  let dragMode = 'move'; // 'move' | 'select'
   const selectionBox = document.getElementById('selectionBox');
-  let selecting = false, selStartX, selStartY, selRect = null;
+  let dragging2 = false, dragStartX, dragStartY, panStartPanX, panStartPanY, selRect = null;
+
   wrapper.addEventListener('pointerdown', e => {
     if(e.target !== wrapper && e.target !== canvas && e.target !== svg) return;
     if(connectMode) return;
-    selecting = true;
+    dragging2 = true;
     wrapper.setPointerCapture(e.pointerId);
-    selStartX = e.clientX; selStartY = e.clientY;
-    selectionBox.style.display = 'block';
-    updateSelectionBox(e.clientX, e.clientY);
+    dragStartX = e.clientX; dragStartY = e.clientY;
+    if(dragMode === 'move'){
+      wrapper.classList.add('panning');
+      panStartPanX = panX; panStartPanY = panY;
+    } else {
+      selectionBox.style.display = 'block';
+      updateSelectionBox(e.clientX, e.clientY);
+    }
   });
   function updateSelectionBox(curX, curY){
     const rect = wrapper.getBoundingClientRect();
-    const x1 = Math.min(selStartX, curX), x2 = Math.max(selStartX, curX);
-    const y1 = Math.min(selStartY, curY), y2 = Math.max(selStartY, curY);
+    const x1 = Math.min(dragStartX, curX), x2 = Math.max(dragStartX, curX);
+    const y1 = Math.min(dragStartY, curY), y2 = Math.max(dragStartY, curY);
     selectionBox.style.left = (x1 - rect.left) + 'px';
     selectionBox.style.top = (y1 - rect.top) + 'px';
     selectionBox.style.width = (x2 - x1) + 'px';
@@ -771,27 +782,41 @@
     });
   }
   wrapper.addEventListener('pointermove', e => {
-    if(!selecting) return;
-    updateSelectionBox(e.clientX, e.clientY);
-    updateLiveSelection();
-  });
-  function stopSelecting(e){
-    if(!selecting) return;
-    selecting = false;
-    selectionBox.style.display = 'none';
-    const dist = Math.hypot(e.clientX - selStartX, e.clientY - selStartY);
-    if(dist < 5){
-      clearMultiSelection();
-      closePanel();
+    if(!dragging2) return;
+    if(dragMode === 'move'){
+      panX = panStartPanX + (e.clientX - dragStartX);
+      panY = panStartPanY + (e.clientY - dragStartY);
+      applyTransform();
     } else {
-      multiSelected = new Set(
-        Array.from(canvas.querySelectorAll('.node.multi-selected')).map(el => el.dataset.id)
-      );
+      updateSelectionBox(e.clientX, e.clientY);
+      updateLiveSelection();
     }
-    selRect = null;
+  });
+  function stopDrag(e){
+    if(!dragging2) return;
+    dragging2 = false;
+    const dist = Math.hypot(e.clientX - dragStartX, e.clientY - dragStartY);
+    if(dragMode === 'move'){
+      wrapper.classList.remove('panning');
+      if(dist < 5){
+        clearMultiSelection();
+        closePanel();
+      }
+    } else {
+      selectionBox.style.display = 'none';
+      if(dist < 5){
+        clearMultiSelection();
+        closePanel();
+      } else {
+        multiSelected = new Set(
+          Array.from(canvas.querySelectorAll('.node.multi-selected')).map(el => el.dataset.id)
+        );
+      }
+      selRect = null;
+    }
   }
-  wrapper.addEventListener('pointerup', stopSelecting);
-  wrapper.addEventListener('pointercancel', stopSelecting);
+  wrapper.addEventListener('pointerup', stopDrag);
+  wrapper.addEventListener('pointercancel', stopDrag);
 
   // ---------- Notes / line-style side panel ----------
   const notesPanel = document.getElementById('notesPanel');
@@ -1598,6 +1623,21 @@
     } else {
       hint.textContent = 'Click a node to start a connection…';
       closePanel();
+      clearMultiSelection();
+    }
+  });
+
+  const dragModeBtn = document.getElementById('dragModeBtn');
+  dragModeBtn.addEventListener('click', () => {
+    dragMode = dragMode === 'move' ? 'select' : 'move';
+    if(dragMode === 'select'){
+      dragModeBtn.textContent = '⬚ Select';
+      dragModeBtn.classList.add('active');
+      wrapper.classList.add('select-mode');
+    } else {
+      dragModeBtn.textContent = '🖐 Move';
+      dragModeBtn.classList.remove('active');
+      wrapper.classList.remove('select-mode');
       clearMultiSelection();
     }
   });
