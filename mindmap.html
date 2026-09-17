@@ -358,11 +358,12 @@
     border:2px dashed var(--muted);
     background:rgba(255,255,255,0.03);
     border-radius:14px;
-    z-index:1;
+    z-index:-1;
     cursor:grab;
   }
   .container.dragging{ cursor:grabbing; }
   .container.selected{ border-color:var(--accent); background:rgba(94,184,164,0.06); }
+  .container.multi-selected{ border-color:var(--accent); border-style:dashed; }
   .container-label{
     position:absolute; top:-14px; left:16px;
     background:var(--toolbar); border:1px solid var(--toolbar-border);
@@ -679,16 +680,27 @@
   let connectFrom = null;
   let selectedType = null; // 'node' | 'connection' | null
   let selectedId = null;
-  let multiSelected = new Set(); // ids of nodes highlighted by rubber-band selection
+  let multiSelected = new Set(); // ids of nodes/containers highlighted by rubber-band selection
 
   function clearMultiSelection(){
-    if(!multiSelected.size) return;
     multiSelected.clear();
     canvas.querySelectorAll('.node.multi-selected').forEach(el => el.classList.remove('multi-selected'));
+    canvas.querySelectorAll('.container.multi-selected').forEach(el => el.classList.remove('multi-selected'));
   }
 
   function clearContainerSelection(){
     canvas.querySelectorAll('.container.selected').forEach(el => el.classList.remove('selected'));
+  }
+
+  // Shared helpers so a rubber-band group can mix nodes and containers
+  function findMovable(id){
+    return nodes.find(x => x.id === id) || containers.find(x => x.id === id);
+  }
+  function applyMovablePosition(id, x, y){
+    const nEl = canvas.querySelector('.node[data-id="'+id+'"]');
+    if(nEl){ nEl.style.left = x + 'px'; nEl.style.top = y + 'px'; return; }
+    const cEl = canvas.querySelector('.container[data-id="'+id+'"]');
+    if(cEl){ cEl.style.left = x + 'px'; cEl.style.top = y + 'px'; }
   }
 
   // ---------- Pan & zoom (infinite canvas) ----------
@@ -888,6 +900,11 @@
       const intersects = !(b.right < selRect.x1 || b.left > selRect.x2 || b.bottom < selRect.y1 || b.top > selRect.y2);
       el.classList.toggle('multi-selected', intersects);
     });
+    canvas.querySelectorAll('.container').forEach(el => {
+      const b = el.getBoundingClientRect();
+      const intersects = !(b.right < selRect.x1 || b.left > selRect.x2 || b.bottom < selRect.y1 || b.top > selRect.y2);
+      el.classList.toggle('multi-selected', intersects);
+    });
   }
   wrapper.addEventListener('pointermove', e => {
     if(!dragging2) return;
@@ -918,9 +935,11 @@
         clearContainerSelection();
         closePanel();
       } else {
-        multiSelected = new Set(
-          Array.from(canvas.querySelectorAll('.node.multi-selected')).map(el => el.dataset.id)
-        );
+        const selectedEls = [
+          ...canvas.querySelectorAll('.node.multi-selected'),
+          ...canvas.querySelectorAll('.container.multi-selected')
+        ];
+        multiSelected = new Set(selectedEls.map(el => el.dataset.id));
       }
       selRect = null;
     }
@@ -1383,18 +1402,8 @@
     });
   }
 
-  function nodesInside(c){
-    return nodes.filter(n => {
-      const el = canvas.querySelector('.node[data-id="'+n.id+'"]');
-      const w = el ? el.offsetWidth : 160, h = el ? el.offsetHeight : 50;
-      const cx = n.x + w/2, cy = n.y + h/2;
-      return cx >= c.x && cx <= c.x + c.w && cy >= c.y && cy <= c.y + c.h;
-    });
-  }
-
   function makeContainerInteractive(el, c, resizeHandle){
-    let startX, startY, origX, origY, dragging = false, resizing = false, origW, origH;
-    let carried = null;
+    let startX, startY, origX, origY, dragging = false, resizing = false, origW, origH, groupOrigins = null;
 
     el.addEventListener('pointerdown', e => {
       if(connectMode) return;
@@ -1404,20 +1413,33 @@
       el.setPointerCapture(e.pointerId);
       startX = e.clientX; startY = e.clientY;
       origX = c.x; origY = c.y;
-      carried = nodesInside(c).map(n => ({ n, x: n.x, y: n.y }));
+      if(multiSelected.has(c.id) && multiSelected.size > 1){
+        groupOrigins = new Map();
+        multiSelected.forEach(id => {
+          const item = findMovable(id);
+          if(item) groupOrigins.set(id, { x: item.x, y: item.y });
+        });
+      } else {
+        groupOrigins = null;
+      }
     });
     el.addEventListener('pointermove', e => {
       if(!dragging) return;
       const dx = (e.clientX - startX) / scale;
       const dy = (e.clientY - startY) / scale;
-      c.x = origX + dx; c.y = origY + dy;
-      el.style.left = c.x + 'px'; el.style.top = c.y + 'px';
-      carried.forEach(item => {
-        item.n.x = item.x + dx; item.n.y = item.y + dy;
-        const nEl = canvas.querySelector('.node[data-id="'+item.n.id+'"]');
-        if(nEl){ nEl.style.left = item.n.x + 'px'; nEl.style.top = item.n.y + 'px'; }
-      });
-      drawConnections();
+      if(groupOrigins){
+        groupOrigins.forEach((pos, id) => {
+          const item = findMovable(id);
+          if(!item) return;
+          item.x = pos.x + dx;
+          item.y = pos.y + dy;
+          applyMovablePosition(id, item.x, item.y);
+        });
+        drawConnections();
+      } else {
+        c.x = origX + dx; c.y = origY + dy;
+        el.style.left = c.x + 'px'; el.style.top = c.y + 'px';
+      }
     });
     function stopDrag(e){
       if(!dragging) return;
@@ -1432,7 +1454,7 @@
       } else {
         notifyChange();
       }
-      carried = null;
+      groupOrigins = null;
     }
     el.addEventListener('pointerup', stopDrag);
     el.addEventListener('pointercancel', stopDrag);
@@ -1745,8 +1767,8 @@
       if(multiSelected.has(n.id) && multiSelected.size > 1){
         groupOrigins = new Map();
         multiSelected.forEach(id => {
-          const gn = nodes.find(x => x.id === id);
-          if(gn) groupOrigins.set(id, { x: gn.x, y: gn.y });
+          const item = findMovable(id);
+          if(item) groupOrigins.set(id, { x: item.x, y: item.y });
         });
       } else {
         groupOrigins = null;
@@ -1759,12 +1781,11 @@
       const deltaY = (e.clientY - startY) / scale;
       if(groupOrigins){
         groupOrigins.forEach((pos, id) => {
-          const gn = nodes.find(x => x.id === id);
-          if(!gn) return;
-          gn.x = pos.x + deltaX;
-          gn.y = pos.y + deltaY;
-          const gEl = canvas.querySelector('.node[data-id="'+id+'"]');
-          if(gEl){ gEl.style.left = gn.x + 'px'; gEl.style.top = gn.y + 'px'; }
+          const item = findMovable(id);
+          if(!item) return;
+          item.x = pos.x + deltaX;
+          item.y = pos.y + deltaY;
+          applyMovablePosition(id, item.x, item.y);
         });
       } else {
         n.x = origX + deltaX;
