@@ -660,6 +660,14 @@
   const emptyMsg = document.getElementById('empty');
   const hint = document.getElementById('hint');
 
+  // Redraws connections whenever any observed node's rendered box actually
+  // changes size, for any reason (font swap, live typing, shape change,
+  // checkbox toggle, etc.) — catches the whole class of "stale connection"
+  // bugs rather than each individual cause one at a time.
+  const nodeResizeObserver = (typeof ResizeObserver !== 'undefined')
+    ? new ResizeObserver(() => drawConnections())
+    : { observe(){} };
+
   let nodes = [];       // {id, x, y, text, notes, color}
   let connections = []; // {id, from, to, text, notes, lineStyle}
   let containers = [];  // {id, x, y, w, h, text}
@@ -1551,6 +1559,7 @@
       if(multiSelected.has(n.id)) el.classList.add('multi-selected');
 
       canvas.appendChild(el);
+      nodeResizeObserver.observe(el);
 
       makeDraggable(el, n);
 
@@ -2023,6 +2032,7 @@
   // are actually ready so lines don't end up pointing at stale positions.
   if(document.fonts && document.fonts.ready){
     document.fonts.ready.then(() => drawConnections());
+    document.fonts.addEventListener('loadingdone', () => drawConnections());
   }
 })();
 </script>
