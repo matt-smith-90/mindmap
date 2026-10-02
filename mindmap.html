@@ -320,6 +320,7 @@
   }
   .node.has-checkbox .node-text{ text-align:left; }
   .node-text.checked-text{ opacity:0.5; text-decoration:line-through; }
+  .node-text.struck{ text-decoration:line-through; }
   .node-del{
     position:absolute; top:-9px; right:-9px;
     width:20px; height:20px; border-radius:50%;
@@ -498,11 +499,12 @@
   #nodeColorPicker::-webkit-color-swatch-wrapper{ padding:2px; }
   #nodeColorPicker::-webkit-color-swatch{ border:none; border-radius:4px; }
   #nodeCheckboxRow{ margin-top:14px; }
+  #nodeStrikeRow{ margin-top:10px; }
   .checkboxRowLabel{
     display:flex; align-items:center; gap:8px;
     font-size:13px; color:var(--ink); cursor:pointer;
   }
-  #nodeCheckboxToggle{
+  #nodeCheckboxToggle, #nodeStrikeToggle{
     width:17px; height:17px; margin:0; cursor:pointer;
     accent-color: var(--accent-dim);
   }
@@ -626,6 +628,12 @@
       <label class="checkboxRowLabel">
         <input type="checkbox" id="nodeCheckboxToggle">
         Show a checkbox on this node
+      </label>
+    </div>
+    <div id="nodeStrikeRow">
+      <label class="checkboxRowLabel">
+        <input type="checkbox" id="nodeStrikeToggle">
+        Strikethrough text
       </label>
     </div>
   </div>
@@ -959,6 +967,7 @@
   const nodeShapeSelect = document.getElementById('nodeShapeSelect');
   const nodeColorPicker = document.getElementById('nodeColorPicker');
   const nodeCheckboxToggle = document.getElementById('nodeCheckboxToggle');
+  const nodeStrikeToggle = document.getElementById('nodeStrikeToggle');
   const containerOptionsRow = document.getElementById('containerOptionsRow');
   const containerBgPicker = document.getElementById('containerBgPicker');
   const containerBorderPicker = document.getElementById('containerBorderPicker');
@@ -982,6 +991,7 @@
     nodeShapeSelect.value = n.shape || '';
     nodeColorPicker.value = n.color || '#f6f1e6';
     nodeCheckboxToggle.checked = !!n.hasCheckbox;
+    nodeStrikeToggle.checked = !!n.strikethrough;
     notesPanel.classList.add('open');
   }
 
@@ -1113,6 +1123,16 @@
     n.hasCheckbox = nodeCheckboxToggle.checked;
     if(n.hasCheckbox && typeof n.checked !== 'boolean') n.checked = false;
     render();
+    notifyChange();
+  });
+
+  nodeStrikeToggle.addEventListener('change', () => {
+    if(selectedType !== 'node') return;
+    const n = nodes.find(n => n.id === selectedId);
+    if(!n) return;
+    n.strikethrough = nodeStrikeToggle.checked;
+    const el = canvas.querySelector('.node[data-id="'+n.id+'"] .node-text');
+    if(el) el.classList.toggle('struck', n.strikethrough);
     notifyChange();
   });
 
@@ -1294,6 +1314,7 @@
         if(typeof n.hasCheckbox !== 'boolean') n.hasCheckbox = false;
         if(typeof n.checked !== 'boolean') n.checked = false;
         if(typeof n.shape !== 'string') n.shape = '';
+        if(typeof n.strikethrough !== 'boolean') n.strikethrough = false;
       });
       connections.forEach(c => {
         if(typeof c.notes !== 'string') c.notes = '';
@@ -1528,7 +1549,7 @@
       });
 
       const txt = document.createElement('div');
-      txt.className = 'node-text' + (n.hasCheckbox && n.checked ? ' checked-text' : '');
+      txt.className = 'node-text' + (n.hasCheckbox && n.checked ? ' checked-text' : '') + (n.strikethrough ? ' struck' : '');
       txt.contentEditable = 'true';
       txt.spellcheck = false;
       txt.textContent = n.text;
@@ -1826,7 +1847,8 @@
       color: isFirst ? '#f2b25c' : '',
       hasCheckbox: false,
       checked: false,
-      shape: ''
+      shape: '',
+      strikethrough: false
     };
     nodes.push(n);
     render();
@@ -1854,7 +1876,7 @@
     else if(dir === 'bottom'){ y = parent.y + gapY; }
     else if(dir === 'top'){ y = parent.y - gapY; }
 
-    const n = { id: nextId(), x, y, text: 'New Idea', notes: '', color: '', hasCheckbox: false, checked: false, shape: '' };
+    const n = { id: nextId(), x, y, text: 'New Idea', notes: '', color: '', hasCheckbox: false, checked: false, shape: '', strikethrough: false };
     nodes.push(n);
     connections.push({ id:'c'+(idCounter++), from: parent.id, to: n.id, text:'', notes:'', lineStyle:'solid', lineColor:'' });
     render();
