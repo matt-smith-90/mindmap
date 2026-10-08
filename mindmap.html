@@ -251,6 +251,9 @@
   .node.dragging{ cursor:grabbing; box-shadow:0 8px 20px rgba(0,0,0,0.4); z-index:20; }
   .node.connectSelected{ outline:2.5px solid var(--accent); outline-offset:2px; }
   .node.connectMode{ cursor:crosshair; }
+  #canvas.connectMode .container{ cursor:crosshair; }
+  #canvas.connectMode .container-label{ pointer-events:none; }
+  .container.connectSelected{ outline:2.5px solid var(--accent); outline-offset:3px; }
   .node.has-checkbox{ display:flex; align-items:center; gap:9px; }
 
   /* ---------- Node shapes ---------- */
@@ -349,7 +352,7 @@
     z-index:3;
   }
   .node-add:hover{ opacity:1 !important; transform:scale(1.12); background:#6ec3b0; }
-  .node:hover .node-add{ opacity:0.9; }
+  .node:hover .node-add, .container:hover .node-add{ opacity:0.9; }
   .node-add.right{ top:50%; right:-11px; margin-top:-11px; }
   .node-add.left{ top:50%; left:-11px; margin-top:-11px; }
   .node-add.bottom{ bottom:-11px; left:50%; margin-left:-11px; }
@@ -1056,10 +1059,8 @@
     canvas.querySelectorAll('.node.selected').forEach(x => x.classList.remove('selected'));
     const c = connections.find(c => c.id === id);
     if(!c) return;
-    const fromN = nodes.find(n => n.id === c.from);
-    const toN = nodes.find(n => n.id === c.to);
     notesPanelTitle.textContent = c.text ? '\u201C' + c.text + '\u201D' : 'Connection';
-    notesPanelSub.textContent = (fromN ? fromN.text : '?') + ' \u2192 ' + (toN ? toN.text : '?');
+    notesPanelSub.textContent = itemName(c.from) + ' \u2192 ' + itemName(c.to);
     notesTextarea.value = c.notes || '';
     nodeShapeRow.style.display = 'none';
     containerOptionsRow.style.display = 'none';
@@ -1486,6 +1487,12 @@
       label.addEventListener('blur', () => {
         c.text = label.textContent.trim() || 'Container';
         label.textContent = c.text;
+        if(selectedType === 'connection'){
+          const sc = connections.find(x => x.id === selectedId);
+          if(sc && (sc.from === c.id || sc.to === c.id)){
+            notesPanelSub.textContent = itemName(sc.from) + ' \u2192 ' + itemName(sc.to);
+          }
+        }
         notifyChange();
       });
       label.addEventListener('keydown', e => {
@@ -1501,10 +1508,33 @@
       del.addEventListener('click', e => {
         e.stopPropagation();
         containers = containers.filter(x => x.id !== c.id);
+        connections = connections.filter(x => x.from !== c.id && x.to !== c.id);
+        multiSelected.delete(c.id);
+        if(connectFrom === c.id) connectFrom = null;
+        if(selectedId === c.id) closePanel();
         render();
         notifyChange();
       });
       el.appendChild(del);
+
+      ['right','bottom','left','top'].forEach(dir => {
+        const add = document.createElement('div');
+        add.className = 'node-add ' + dir;
+        add.textContent = '+';
+        add.title = 'Add a node connected to this container';
+        add.addEventListener('pointerdown', e => e.stopPropagation());
+        add.addEventListener('click', e => {
+          e.stopPropagation();
+          addConnectedNodeFromContainer(c, dir);
+        });
+        el.appendChild(add);
+      });
+
+      el.addEventListener('click', e => {
+        if(!connectMode) return;
+        e.stopPropagation();
+        handleConnectClick(c.id, el);
+      });
 
       if(c.notes && c.notes.trim()){
         const badge = document.createElement('div');
@@ -1560,6 +1590,7 @@
       } else {
         c.x = origX + dx; c.y = origY + dy;
         el.style.left = c.x + 'px'; el.style.top = c.y + 'px';
+        drawConnections();
       }
     });
     function stopDrag(e){
@@ -1594,6 +1625,7 @@
       c.w = Math.max(160, origW + dx);
       c.h = Math.max(120, origH + dy);
       el.style.width = c.w + 'px'; el.style.height = c.h + 'px';
+      drawConnections();
     });
     function stopResize(e){
       if(!resizing) return;
@@ -1662,9 +1694,7 @@
         if(selectedType === 'connection'){
           const c = connections.find(c => c.id === selectedId);
           if(c && (c.from === n.id || c.to === n.id)){
-            const fromN = nodes.find(x => x.id === c.from);
-            const toN = nodes.find(x => x.id === c.to);
-            notesPanelSub.textContent = (fromN ? fromN.text : '?') + ' \u2192 ' + (toN ? toN.text : '?');
+            notesPanelSub.textContent = itemName(c.from) + ' \u2192 ' + itemName(c.to);
           }
         }
         drawConnections();
@@ -1723,15 +1753,64 @@
     drawConnections();
   }
 
+  // Connections can run between nodes and/or containers, so look up either.
   function nodeCenter(id){
-    const el = canvas.querySelector('.node[data-id="'+id+'"]');
+    const el = canvas.querySelector('.node[data-id="'+id+'"]')
+            || canvas.querySelector('.container[data-id="'+id+'"]');
     if(!el) return null;
     return {
       x: el.offsetLeft + el.offsetWidth/2,
       y: el.offsetTop + el.offsetHeight/2,
       w: el.offsetWidth,
-      h: el.offsetHeight
+      h: el.offsetHeight,
+      isContainer: el.classList.contains('container')
     };
+  }
+
+  // Display name for a connection endpoint (node text or container label)
+  function itemName(id){
+    const n = nodes.find(x => x.id === id);
+    if(n) return n.text;
+    const c = containers.find(x => x.id === id);
+    if(c) return c.text || 'Container';
+    return '?';
+  }
+
+  function pointInsideBox(box, p){
+    return Math.abs(p.x - box.x) < box.w/2 && Math.abs(p.y - box.y) < box.h/2;
+  }
+
+  // Nearest point on the border of `box` to a point `p` that sits inside it
+  function nearestBorderPoint(box, p){
+    const dl = p.x - (box.x - box.w/2), dr = (box.x + box.w/2) - p.x;
+    const dt = p.y - (box.y - box.h/2), db = (box.y + box.h/2) - p.y;
+    const m = Math.min(dl, dr, dt, db);
+    if(m === dl) return { x: box.x - box.w/2, y: p.y };
+    if(m === dr) return { x: box.x + box.w/2, y: p.y };
+    if(m === dt) return { x: p.x, y: box.y - box.h/2 };
+    return { x: p.x, y: box.y + box.h/2 };
+  }
+
+  // Where a connection leaves/enters each end. Normally that's where the line
+  // between the two centres crosses each box's edge. But if one end is a
+  // container that fully surrounds the other end's centre, that straight-line
+  // rule would put the container's end beyond the inner node, so instead the
+  // line hangs off the container's nearest edge and runs in to the node.
+  function connectionEndpoints(a, b){
+    const clipToward = (box, target) => {
+      const dx = target.x - box.x, dy = target.y - box.y;
+      const len = Math.hypot(dx, dy) || 1;
+      return clipToRect(box.x, box.y, box.w/2, box.h/2, dx/len, dy/len);
+    };
+    if(a.isContainer && pointInsideBox(a, b)){
+      const aEdge = nearestBorderPoint(a, b);
+      return { aEdge, bEdge: clipToward(b, aEdge) };
+    }
+    if(b.isContainer && pointInsideBox(b, a)){
+      const bEdge = nearestBorderPoint(b, a);
+      return { aEdge: clipToward(a, bEdge), bEdge };
+    }
+    return { aEdge: clipToward(a, b), bEdge: clipToward(b, a) };
   }
 
   function clipToRect(cx, cy, halfW, halfH, dirX, dirY){
@@ -1773,11 +1852,7 @@
       const b = nodeCenter(c.to);
       if(!a || !b) return;
 
-      const dx0 = b.x - a.x, dy0 = b.y - a.y;
-      const len = Math.hypot(dx0, dy0) || 1;
-      const ndx = dx0/len, ndy = dy0/len;
-      const aEdge = clipToRect(a.x, a.y, a.w/2, a.h/2, ndx, ndy);
-      const bEdge = clipToRect(b.x, b.y, b.w/2, b.h/2, -ndx, -ndy);
+      const { aEdge, bEdge } = connectionEndpoints(a, b);
 
       const isSelected = selectedType==='connection' && selectedId===c.id;
       const customColor = c.lineColor && !isSelected ? c.lineColor : '';
@@ -2008,6 +2083,38 @@
     nodes.push(n);
     connections.push({ id:'c'+(idCounter++), from: parent.id, to: n.id, text:'', notes:'', lineStyle:'arrow', lineColor:'', subLabel:'' });
     render();
+
+    requestAnimationFrame(() => {
+      const txtEl = canvas.querySelector('.node[data-id="'+n.id+'"] .node-text');
+      if(txtEl){
+        txtEl.focus();
+        const range = document.createRange();
+        range.selectNodeContents(txtEl);
+        const sel = window.getSelection();
+        sel.removeAllRanges(); sel.addRange(range);
+      }
+    });
+    notifyChange();
+  }
+
+  // Same idea as a node's "+" buttons: spawn a new node on the chosen side of
+  // the container and connect container -> new node.
+  function addConnectedNodeFromContainer(cont, dir){
+    const GAP = 90;
+    const n = { id: nextId(), x: cont.x, y: cont.y, text: 'New Idea', notes: '', color: '', hasCheckbox: false, checked: false, shape: '', strikethrough: false, cornerLabel: '' };
+    nodes.push(n);
+    connections.push({ id:'c'+(idCounter++), from: cont.id, to: n.id, text:'', notes:'', lineStyle:'arrow', lineColor:'', subLabel:'' });
+    render();
+
+    // now that the node exists we know its real size, so place it exactly
+    const nEl = canvas.querySelector('.node[data-id="'+n.id+'"]');
+    const nw = nEl ? nEl.offsetWidth : 130, nh = nEl ? nEl.offsetHeight : 46;
+    if(dir === 'right'){ n.x = cont.x + cont.w + GAP;       n.y = cont.y + cont.h/2 - nh/2; }
+    else if(dir === 'left'){ n.x = cont.x - GAP - nw;       n.y = cont.y + cont.h/2 - nh/2; }
+    else if(dir === 'bottom'){ n.x = cont.x + cont.w/2 - nw/2; n.y = cont.y + cont.h + GAP; }
+    else { n.x = cont.x + cont.w/2 - nw/2;                   n.y = cont.y - GAP - nh; }
+    if(nEl){ nEl.style.left = n.x + 'px'; nEl.style.top = n.y + 'px'; }
+    drawConnections();
 
     requestAnimationFrame(() => {
       const txtEl = canvas.querySelector('.node[data-id="'+n.id+'"] .node-text');
